@@ -2,106 +2,99 @@ import streamlit as st
 import pandas as pd
 import ast
 
-# ---------------- PAGE CONFIG ----------------
-st.set_page_config(page_title="Movie Recommendation System", page_icon="🎬", layout="wide")
+# --------------------------
+# PAGE SETTINGS
+# --------------------------
+st.set_page_config(page_title="Movie Recommender", page_icon="🎬", layout="wide")
 
-# ---------------- BACKGROUND DESIGN ----------------
+# --------------------------
+# DARK THEME STYLE
+# --------------------------
 st.markdown("""
 <style>
 .stApp {
-    background-image: url("https://images.unsplash.com/photo-1524985069026-dd778a71c7b4");
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-}
-
-.stApp::before {
-    content: "";
-    position: fixed;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.85);
-    z-index: -1;
+    background-color: #0f0f0f;
+    color: white;
 }
 
 .title {
     text-align: center;
-    font-size: 50px;
+    font-size: 45px;
     font-weight: bold;
-    color: white;
+    color: #e50914;
 }
 
-.subtitle {
-    text-align: center;
-    color: #cccccc;
-    margin-bottom: 40px;
-}
-
-.stButton>button {
-    background-color: #e50914;
-    color: white;
-    font-size: 18px;
-    height: 45px;
+.movie-box {
+    background: #1c1c1c;
+    padding: 15px;
     border-radius: 8px;
+    margin: 8px 0;
+    transition: 0.3s;
+}
+
+.movie-box:hover {
+    background: #e50914;
+    transform: scale(1.02);
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- LOAD DATA SAFELY ----------------
+# --------------------------
+# LOAD DATA
+# --------------------------
 @st.cache_data
 def load_data():
-    try:
-        df = pd.read_csv("movies_metadata.csv", low_memory=False)
-        df = df[['title', 'genres', 'vote_average', 'overview']]
-        df = df.dropna()
-        df = df.head(5000)  # limit for performance
-        return df
-    except:
-        st.error("movies_metadata.csv file not found! Upload it in project folder.")
-        st.stop()
+    df = pd.read_csv("movies_metadata.csv", low_memory=False)
+    df = df[['title', 'genres', 'release_date']]
+    df = df.dropna(subset=['genres'])
+    return df
 
 movies = load_data()
 
-# ---------------- PROCESS GENRES ----------------
-def extract_genres(text):
+# --------------------------
+# FUNCTION TO EXTRACT GENRES
+# --------------------------
+def get_genre_list(genre_string):
     try:
-        genres = ast.literal_eval(text)
+        genres = ast.literal_eval(genre_string)
         return [g['name'] for g in genres]
     except:
         return []
 
-movies['genre_list'] = movies['genres'].apply(extract_genres)
+movies['genre_list'] = movies['genres'].apply(get_genre_list)
 
-# ---------------- TITLE ----------------
-st.markdown('<div class="title">🎬 Movie Recommendation System</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Discover Movies From All Genres</div>', unsafe_allow_html=True)
+# --------------------------
+# UI
+# --------------------------
+st.markdown('<div class="title">🎬 Genre Based Movie Recommendation</div>', unsafe_allow_html=True)
 
-# ---------------- SELECT MOVIE ----------------
-selected_movie = st.selectbox("Choose a Movie", movies['title'].values)
+genre_input = st.text_input("Enter Genre (Action, Comedy, Thriller, Drama etc.)")
 
-# ---------------- RECOMMEND FUNCTION ----------------
-def recommend(movie):
-    movie_genres = movies[movies['title'] == movie]['genre_list'].values[0]
-    
-    recommendations = []
+if st.button("🍿 Get Movies"):
+    if genre_input:
 
-    for index, row in movies.iterrows():
-        if row['title'] != movie:
-            common = set(movie_genres).intersection(set(row['genre_list']))
-            score = len(common)
-            if score > 0:
-                recommendations.append((row['title'], row['vote_average'], score))
-    
-    recommendations = sorted(recommendations, key=lambda x: x[2], reverse=True)
-    
-    return recommendations[:10]
+        filtered = movies[movies['genre_list'].apply(
+            lambda x: genre_input.lower() in [g.lower() for g in x]
+        )]
 
-# ---------------- BUTTON ----------------
-if st.button("🔥 Recommend Movies"):
+        if not filtered.empty:
+            st.subheader(f"Top {min(25, len(filtered))} {genre_input.title()} Movies")
 
-    results = recommend(selected_movie)
+            top_movies = filtered.head(25)
 
-    st.subheader("Top Recommendations:")
+            for i, row in top_movies.iterrows():
+                year = ""
+                if pd.notna(row['release_date']):
+                    year = row['release_date'][:4]
 
-    for title, rating, score in results:
-        st.write(f"🎥 **{title}**  | ⭐ Rating: {rating}")
+                st.markdown(
+                    f'<div class="movie-box">🎥 {row["title"]} ({year})</div>',
+                    unsafe_allow_html=True
+                )
+
+        else:
+            st.warning("No movies found for this genre.")
+
+    else:
+        st.warning("Please enter a genre.")
+

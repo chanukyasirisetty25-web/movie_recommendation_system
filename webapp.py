@@ -1,94 +1,125 @@
-import os
+import streamlit as st
 import pandas as pd
-from flask import Flask, render_template, request, jsonify
+import ast
 
-app = Flask(__name__)
+# -----------------------------
+# PAGE CONFIG
+# -----------------------------
+st.set_page_config(
+    page_title="Movie Recommendation System",
+    page_icon="🎬",
+    layout="wide"
+)
 
-# --- Configuration ---
-# Adjust path if needed (e.g., if files are in a subfolder)
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
-METADATA_PATH = os.path.join(DATA_DIR, "movies_metadata.csv")
-SMALL_PATH = os.path.join(DATA_DIR, "movies_small.csv")
+# -----------------------------
+# CUSTOM DARK THEME CSS
+# -----------------------------
+st.markdown("""
+<style>
 
-# Try movies_small first, fall back to movies_metadata
-if os.path.exists(SMALL_PATH):
-    df = pd.read_csv(SMALL_PATH)
-elif os.path.exists(METADATA_PATH):
-    df = pd.read_csv(METADATA_PATH)
-else:
-    raise FileNotFoundError("No movies CSV found: movies_small.csv or movies_metadata.csv")
-
-# --- Genre mapping (for user input) ---
-GENRE_MAPPING = {
-    "action": "Action",
-    "adventure": "Adventure",
-    "comedy": "Comedy",
-    "drama": "Drama",
-    "thriller": "Thriller",
-    "thriller/suspense": "Thriller",
-    "romance": "Romance",
-    "film noir": "Crime",
-    "crime": "Crime",
-    "musical": "Musical",
-    "western": "Western",
-    "animation": "Animation",
+.stApp {
+    background: linear-gradient(to right, #141e30, #243b55);
+    color: white;
 }
 
-# --- Helper: parse genres from CSV ---
-def parse_genres(genre_str):
-    if pd.isna(genre_str):
-        return []
+.title {
+    text-align: center;
+    font-size: 48px;
+    font-weight: bold;
+    color: #ff4b2b;
+    margin-bottom: 10px;
+}
+
+.subtitle {
+    text-align: center;
+    font-size: 18px;
+    margin-bottom: 40px;
+    color: #dddddd;
+}
+
+.movie-card {
+    background: #1e1e1e;
+    padding: 15px;
+    border-radius: 10px;
+    margin: 8px 0;
+    font-size: 17px;
+    transition: 0.3s;
+}
+
+.movie-card:hover {
+    background: #ff4b2b;
+    transform: scale(1.02);
+}
+
+.stTextInput>div>div>input {
+    background-color: #1e1e1e;
+    color: white;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# -----------------------------
+# LOAD DATA
+# -----------------------------
+@st.cache_data
+def load_data():
+    df = pd.read_csv("movies_metadata.csv", low_memory=False)
+
+    df = df[['title', 'genres', 'release_date']]
+    df = df.dropna(subset=['genres'])
+
+    return df
+
+movies = load_data()
+
+# -----------------------------
+# EXTRACT GENRE FUNCTION
+# -----------------------------
+def extract_genres(genre_string):
     try:
-        # If genres are stored as a JSON‑like string (common in movies_metadata.csv)
-        import ast
-        genres = ast.literal_eval(genre_str)
-        return [g["name"] for g in genres]
+        genres = ast.literal_eval(genre_string)
+        return [g['name'] for g in genres]
     except:
-        # Fallback: simple comma‑separated string
-        return [g.strip() for g in str(genre_str).split(",") if g.strip()]
+        return []
 
+movies['genre_list'] = movies['genres'].apply(extract_genres)
 
-# --- Endpoint: home page ---
-@app.route("/")
-def index():
-    return render_template("index.html")
+# -----------------------------
+# UI SECTION
+# -----------------------------
+st.markdown('<div class="title">🎬 Movie Recommendation System</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Get 25+ Movies Based on Your Favorite Genre</div>', unsafe_allow_html=True)
 
+genre_input = st.text_input("🎥 Enter Genre (Action, Comedy, Thriller, Drama etc.)")
 
-# --- Endpoint: recommend by genre ---
-@app.route("/recommend", methods=["POST"])
-def recommend():
-    data = request.get_json()
-    genre_input = data.get("genre", "").strip().lower()
+if st.button("🍿 Show Recommendations"):
 
-    # Map user input to internal genre
-    mapped_genre = GENRE_MAPPING.get(genre_input)
-    if not mapped_genre:
-        return jsonify({
-            "error": "Invalid genre. Please choose from: Action, Adventure, Comedy, Drama, Thriller, Romance, Crime, Musical, Western, Animation."
-        })
+    if genre_input:
 
-    # Add parsed genres column if not present
-    if "genres_parsed" not in df.columns:
-        df["genres_parsed"] = df["genres"].apply(parse_genres)
+        filtered_movies = movies[movies['genre_list'].apply(
+            lambda x: genre_input.lower() in [g.lower() for g in x]
+        )]
 
-    # Filter movies that contain the genre
-    mask = df["genres_parsed"].apply(lambda gs: mapped_genre in gs)
-    filtered = df[mask]
+        if not filtered_movies.empty:
 
-    # Ensure at least 50 movies; if not, pad with others (or reduce)
-    titles = filtered["title"].dropna().tolist()
-    if len(titles) < 50:
-        # If dataset is small, pad with any movies (you can change logic)
-        extra = df["title"].dropna().tolist()
-        titles = (titles + extra)[:50]
+            st.subheader(f"Top {min(25, len(filtered_movies))} {genre_input.title()} Movies")
 
-    titles = titles[:50]  # Always return exactly 50
+            top_25 = filtered_movies.head(25)
 
-    return jsonify({
-        "genre": mapped_genre,
-        "movies": titles
-    })
+            for index, row in top_25.iterrows():
 
+                year = ""
+                if pd.notna(row['release_date']):
+                    year = row['release_date'][:4]
 
-if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+                st.markdown(
+                    f'<div class="movie-card">🎥 {row["title"]} ({year})</div>',
+                    unsafe_allow_html=True
+                )
+
+        else:
+            st.warning("No movies found for this genre.")
+
+    else:
+        st.warning("Please enter a genre.")
